@@ -1,0 +1,4 @@
+.idea
+.DS_Store
+test_coverage_reporter.html
+test_coverage_reporter.out
