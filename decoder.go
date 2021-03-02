@@ -11,7 +11,7 @@ import (
 )
 
 type Decoder interface {
-	UnmarshalDocument(tagName string, data map[string]interface{}, opt ...interface{}) error
+	UnmarshalDocument(tagName string, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error
 }
 
 func getPrefix(data map[string]interface{}, prefix string) map[string]interface{} {
@@ -113,7 +113,7 @@ func getGroupData(data map[string]interface{}, group string) []map[string]interf
 }
 
 // Unmarshal dorm tag 解析
-func Unmarshal(v interface{}, data map[string]interface{}, opt ...interface{}) error {
+func Unmarshal(v interface{}, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error {
 	typ := reflect.TypeOf(v)
 	if typ.Kind() == reflect.Struct {
 		return errors.New("unsupported destination, should be slice or struct")
@@ -157,12 +157,12 @@ func Unmarshal(v interface{}, data map[string]interface{}, opt ...interface{}) e
 					nData := getPrefix(data, prefix)
 					decoder, ok := fieldInterface.(Decoder)
 					if ok {
-						err := decoder.UnmarshalDocument(name, nData, opt...)
+						err := decoder.UnmarshalDocument(name, nData, metaInfo, opt...)
 						if err != nil {
 							return err
 						}
 					} else {
-						if err := Unmarshal(fieldInterface, nData, opt...); err != nil {
+						if err := Unmarshal(fieldInterface, nData, metaInfo, opt...); err != nil {
 							return err
 						}
 					}
@@ -198,12 +198,12 @@ func Unmarshal(v interface{}, data map[string]interface{}, opt ...interface{}) e
 						itemInterface := elem.Interface()
 						decoder, ok := itemInterface.(Decoder)
 						if ok {
-							err := decoder.UnmarshalDocument(name, itemMap, opt...)
+							err := decoder.UnmarshalDocument(name, itemMap, metaInfo, opt...)
 							if err != nil {
 								return err
 							}
 						} else {
-							if err := Unmarshal(itemInterface, itemMap, opt...); err != nil {
+							if err := Unmarshal(itemInterface, itemMap, metaInfo, opt...); err != nil {
 								return err
 							}
 						}
@@ -217,7 +217,7 @@ func Unmarshal(v interface{}, data map[string]interface{}, opt ...interface{}) e
 			default:
 				iFace := field.Field.Addr().Interface()
 				if decoder, ok := iFace.(Decoder); ok {
-					if err := decoder.UnmarshalDocument("", data, opt...); err != nil {
+					if err := decoder.UnmarshalDocument("", data, metaInfo, opt...); err != nil {
 						return err
 					}
 					continue

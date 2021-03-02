@@ -7,8 +7,13 @@ import (
 	"reflect"
 )
 
+type ResultInterface interface {
+	GetResults() map[string]interface{}
+	GetMetaInfo() interface{}
+}
+
 type Parser interface {
-	ReadToMaps(opt ...interface{}) ([]map[string]interface{}, error)
+	ReadToMaps(opt ...interface{}) ([]ResultInterface, error)
 }
 
 type ObjectMapper interface {
@@ -24,8 +29,8 @@ func (mapper *DocumentMapper) SetParser(parser Parser) {
 	mapper.parser = parser
 }
 
-func (mapper *DocumentMapper) GetObjectsFromParser(v interface{}, opt...interface{}) error {
-	return GetObjectsFromParser(mapper.parser, v,  opt...)
+func (mapper *DocumentMapper) GetObjectsFromParser(v interface{}, opt ...interface{}) error {
+	return GetObjectsFromParser(mapper.parser, v, opt...)
 }
 
 func OpenXlsFile(filename string) (*DocumentMapper, error) {
@@ -60,7 +65,7 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) erro
 	if kind != reflect.Ptr {
 		return errors.New("v must be ptr")
 	}
-	maps, err := parser.ReadToMaps()
+	results, err := parser.ReadToMaps()
 	if err != nil {
 		return err
 	}
@@ -70,7 +75,7 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) erro
 	}
 	var elem reflect.Value
 	isStruct := reflectValue.Type().Elem().Kind() == reflect.Struct
-	for _, m := range maps {
+	for _, r := range results {
 		if isStruct {
 			elem = reflect.New(reflectValue.Type().Elem())
 		} else {
@@ -79,11 +84,13 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) erro
 		}
 		itemInterface := elem.Interface()
 		if decoder, ok := itemInterface.(Decoder); ok {
-			if err := decoder.UnmarshalDocument("", m, opt...); err != nil {
+			m := r.GetResults()
+			if err := decoder.UnmarshalDocument("", m, r.GetMetaInfo(), opt...); err != nil {
 				return err
 			}
 		} else {
-			if err := Unmarshal(itemInterface, m, opt...); err != nil {
+			m := r.GetResults()
+			if err := Unmarshal(itemInterface, m, r.GetMetaInfo(), opt...); err != nil {
 				return err
 			}
 		}

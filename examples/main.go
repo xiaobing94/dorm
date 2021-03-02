@@ -6,8 +6,8 @@ import (
 )
 
 type AddProductsReq struct {
-	RaisedAmount int64          `json:"raised_amount" dorm:"name:募集目标;shift:8;float:true"` // 募集额 募集目标
-	I18N         []*ProductI18n `json:"i18n" dorm:"name:国际化;group:keys=en zh-CN ru-RU"`    // 多语言
+	RaisedAmount int64          `json:"raised_amount" dorm:"name:目标;shift:8;float:true"` // 募集额 募集目标
+	I18N         []*ProductI18n `json:"i18n" dorm:"name:国际化;group:keys=en zh-CN ru-RU"`  // 多语言
 }
 
 type ProductI18n struct {
@@ -23,7 +23,7 @@ type ProductI18n struct {
 	Introduction string `gorm:"comment:'产品描述';size:1000;default:''" json:"introduction" dorm:"name:产品介绍[\\S]+;reg:true"`
 }
 
-func (p *ProductI18n) UnmarshalDocument(tagName string, data map[string]interface{}, opt ...interface{}) error {
+func (p *ProductI18n) UnmarshalDocument(tagName string, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error {
 	languages := []string{"en", "zh-CN", "ru-RU"}
 	for _, language := range languages {
 		isBreak := false
@@ -38,9 +38,10 @@ func (p *ProductI18n) UnmarshalDocument(tagName string, data map[string]interfac
 			break
 		}
 	}
-	err := dorm.Unmarshal(p, data)
+	err := dorm.Unmarshal(p, data, metaInfo)
 	return err
 }
+
 
 func main() {
 	mapper, err := dorm.OpenXlsFile("/Users/yanjianguo/product.xlsx")
