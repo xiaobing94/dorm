@@ -5,6 +5,7 @@ import (
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"io"
 	"strconv"
+	"strings"
 )
 
 type ExcelParser struct {
@@ -48,7 +49,7 @@ func (p *ExcelParser) rowsToResults(sheetName string, rows [][]string, results [
 	for index, row := range rows {
 		if index == 0 {
 			for rowIndex, colCell := range row {
-				titleIndex[rowIndex] = colCell
+				titleIndex[rowIndex] = strings.TrimSpace(colCell)
 			}
 		} else {
 			cell := map[string]interface{}{}
