@@ -22,6 +22,7 @@ type ObjectMapper interface {
 }
 
 type DocumentMapper struct {
+	errs []error
 	parser Parser
 }
 
@@ -29,8 +30,14 @@ func (mapper *DocumentMapper) SetParser(parser Parser) {
 	mapper.parser = parser
 }
 
+func (mapper *DocumentMapper) GetErrors() []error {
+	return mapper.errs
+}
+
 func (mapper *DocumentMapper) GetObjectsFromParser(v interface{}, opt ...interface{}) error {
-	return GetObjectsFromParser(mapper.parser, v, opt...)
+	errs, err := GetObjectsFromParser(mapper.parser, v, opt...)
+	mapper.errs = errs
+	return err
 }
 
 func OpenXlsFile(filename string) (*DocumentMapper, error) {
@@ -55,23 +62,24 @@ func OpenReader(file io.Reader) (*DocumentMapper, error) {
 	return mapper, nil
 }
 
-func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) error {
+func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{})([]error, error) {
+	var errs []error
 	value := reflect.ValueOf(v)
 	if !value.IsValid() {
-		return errors.New("interface not valid")
+		return nil, errors.New("interface not valid")
 	}
 
 	kind := reflect.TypeOf(v).Kind()
 	if kind != reflect.Ptr {
-		return errors.New("v must be ptr")
+		return nil, errors.New("v must be ptr")
 	}
 	results, err := parser.ReadToMaps()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	reflectValue := reflect.ValueOf(v).Elem()
 	if reflectValue.Kind() != reflect.Slice {
-		return errors.New("v mast be []*T type")
+		return nil, errors.New("v mast be []*T type")
 	}
 	var elem reflect.Value
 	isStruct := reflectValue.Type().Elem().Kind() == reflect.Struct
@@ -86,12 +94,14 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) erro
 		if decoder, ok := itemInterface.(Decoder); ok {
 			m := r.GetResults()
 			if err := decoder.UnmarshalDocument("", m, r.GetMetaInfo(), opt...); err != nil {
-				return err
+				errs = append(errs, NewRowError(r.GetMetaInfo(), err.Error()))
+				continue
 			}
 		} else {
 			m := r.GetResults()
 			if err := Unmarshal(itemInterface, m, r.GetMetaInfo(), opt...); err != nil {
-				return err
+				errs = append(errs, NewRowError(r.GetMetaInfo(), err.Error()))
+				continue
 			}
 		}
 		if isStruct {
@@ -100,5 +110,5 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) erro
 			reflectValue.Set(reflect.Append(reflectValue, elem))
 		}
 	}
-	return nil
+	return errs, nil
 }
