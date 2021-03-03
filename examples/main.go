@@ -56,7 +56,6 @@ func main() {
 		println(err.Error())
 		return
 	}
-
 	data, err := dorm.Marshal(p[0])
 	println(data, err)
 }
