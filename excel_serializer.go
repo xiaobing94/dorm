@@ -18,7 +18,8 @@ func NewExcelSerializer() *ExcelSerializer {
 	return serializer
 }
 
-func (es *ExcelSerializer) Serialize(keys []string, startRow int, data []map[string]interface{}) {
+func (es *ExcelSerializer) Serialize(keys []string, startRow int,
+	sheetName string, data []map[string]interface{}) {
 	if len(data) <= 0 {
 		return
 	}
@@ -27,7 +28,7 @@ func (es *ExcelSerializer) Serialize(keys []string, startRow int, data []map[str
 			keys = append(keys, key)
 		}
 	}
-	sheet := "Sheet1"
+	sheet := sheetName
 	for index, m := range data {
 		for ki, key := range keys {
 			axis := excelize.ToAlphaString(ki) + fmt.Sprintf("%d", startRow+index)

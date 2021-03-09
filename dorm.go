@@ -22,7 +22,7 @@ type ObjectMapper interface {
 }
 
 type DocumentMapper struct {
-	errs []error
+	errs   []error
 	parser Parser
 }
 
@@ -62,7 +62,7 @@ func OpenReader(file io.Reader) (*DocumentMapper, error) {
 	return mapper, nil
 }
 
-func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{})([]error, error) {
+func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{}) ([]error, error) {
 	var errs []error
 	value := reflect.ValueOf(v)
 	if !value.IsValid() {
@@ -111,4 +111,48 @@ func GetObjectsFromParser(parser Parser, v interface{}, opt ...interface{})([]er
 		}
 	}
 	return errs, nil
+}
+
+func WriteToExcelFile(writer io.Writer, sheetName string, v interface{}) error {
+	var err error
+	var nameValues []map[string]interface{}
+	var nameValue map[string]interface{}
+	var nameSorts []string
+
+	value := reflect.ValueOf(v)
+	if !value.IsValid() {
+		return errors.New("interface not valid")
+	}
+
+	kind := reflect.TypeOf(v).Kind()
+	if kind != reflect.Slice {
+		return errors.New("interface must be slice")
+	}
+	reflectValue := reflect.ValueOf(v)
+	length := reflectValue.Len()
+	for i := 0; i < length; i++ {
+		value := reflectValue.Index(i)
+		vi := value.Interface()
+		nameValue, nameSorts, err = Marshal(vi)
+		if err != nil {
+			return err
+		}
+		nameValues = append(nameValues, nameValue)
+	}
+
+	titles := map[string]interface{}{}
+	for _, name := range nameSorts {
+		titles[name] = name
+	}
+
+	var titleValues []map[string]interface{}
+	if len(titles) > 0 {
+		titleValues = append(titleValues, titles)
+	}
+
+	serializer := NewExcelSerializer()
+	serializer.Serialize(nameSorts, 1, sheetName, titleValues)
+	serializer.Serialize(nameSorts, 2, sheetName, nameValues)
+	_, err = serializer.WriteToFile(writer)
+	return err
 }
