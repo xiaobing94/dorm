@@ -133,9 +133,17 @@ func WriteToExcelFile(writer io.Writer, sheetName string, v interface{}) error {
 	for i := 0; i < length; i++ {
 		value := reflectValue.Index(i)
 		vi := value.Interface()
-		nameValue, nameSorts, err = Marshal(vi)
-		if err != nil {
-			return err
+		encoder, ok := vi.(Encoder)
+		if ok {
+			nameValue, nameSorts, err = encoder.MarshalDocument()
+			if err != nil {
+				return err
+			}
+		} else {
+			nameValue, nameSorts, err = Marshal(vi)
+			if err != nil {
+				return err
+			}
 		}
 		nameValues = append(nameValues, nameValue)
 	}
