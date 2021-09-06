@@ -2,16 +2,34 @@ package dorm
 
 import (
 	"errors"
-	"github.com/shopspring/decimal"
 	"go/ast"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/shopspring/decimal"
 )
 
-type Decoder interface {
-	UnmarshalDocument(tagName string, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error
+const (
+	regTag = "REG"
+)
+
+var (
+	numberRE = regexp.MustCompile(`[\d]+`)
+)
+
+// Row excel行数据
+type Row struct {
+	TagName  string                 `json:"tag_name"`
+	Data     map[string]interface{} `json:"data"`
+	MetaInfo interface{}            `json:"meta_info"`
+}
+
+// Encoder 编码器
+type Encoder interface {
+	// EncodeDocument 将文档行数据到对象的接口
+	EncodeDocument(row *Row, opt ...interface{}) error
 }
 
 func getPrefix(data map[string]interface{}, prefix string) map[string]interface{} {
@@ -28,12 +46,13 @@ func getPrefix(data map[string]interface{}, prefix string) map[string]interface{
 	return retMap
 }
 
+// GroupKey 用于分组的Key
 type GroupKey struct {
-	Key    string `json:"key"`
-	Number string `json:"number"`
+	Key    string
+	Number string
 }
 
-// 获取分组之后的数据
+// getGroupData 将数据按tag分组，并返回之后的数据
 func getGroupData(data map[string]interface{}, group string) []map[string]interface{} {
 	var results []map[string]interface{}
 	groupOpts := strings.Split(group, "=")
@@ -53,10 +72,8 @@ func getGroupData(data map[string]interface{}, group string) []map[string]interf
 			itemStr := groupOpts[1]
 			keys = strings.Split(itemStr, " ")
 		} else if method == "number" {
-			regStr := `[\d]+`
-			reg := regexp.MustCompile(regStr)
 			for k, _ := range data {
-				number := reg.FindString(k)
+				number := numberRE.FindString(k)
 				if number != "" {
 					numbers[number] = true
 				}
@@ -88,13 +105,11 @@ func getGroupData(data map[string]interface{}, group string) []map[string]interf
 			groupKeys[gKey] = true
 		}
 	}
-	regStr := `[\d]+`
-	reg := regexp.MustCompile(regStr)
 	for groupKey, _ := range groupKeys {
 		itemData := map[string]interface{}{}
 		for k, v := range data {
 			if groupKey.Key != "" && groupKey.Number != "" {
-				if strings.Contains(k, groupKey.Key) && reg.FindString(k) == groupKey.Number {
+				if strings.Contains(k, groupKey.Key) && numberRE.FindString(k) == groupKey.Number {
 					itemData[k] = v
 				}
 			} else if groupKey.Key != "" {
@@ -102,7 +117,7 @@ func getGroupData(data map[string]interface{}, group string) []map[string]interf
 					itemData[k] = v
 				}
 			} else if groupKey.Number != "" {
-				if reg.FindString(k) == groupKey.Number {
+				if numberRE.FindString(k) == groupKey.Number {
 					itemData[k] = v
 				}
 			}
@@ -112,8 +127,8 @@ func getGroupData(data map[string]interface{}, group string) []map[string]interf
 	return results
 }
 
-// Unmarshal dorm tag 解析
-func Unmarshal(v interface{}, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error {
+// Encode 根据dorm的tag编码为对象
+func Encode(v interface{}, row *Row, opt ...interface{}) error {
 	typ := reflect.TypeOf(v)
 	if typ.Kind() == reflect.Struct {
 		return errors.New("unsupported destination, should be slice or struct")
@@ -138,195 +153,236 @@ func Unmarshal(v interface{}, data map[string]interface{}, metaInfo interface{},
 			}
 			switch kind {
 			case reflect.Ptr, reflect.Struct:
-				isPtr := kind == reflect.Ptr
-				if isPtr && field.Field.IsNil() {
-					field.Field.Set(reflect.New(field.Struct.Type.Elem()))
-				}
-				fieldInterface := field.Field.Interface()
-				if !isPtr {
-					fieldInterface = field.Field.Addr().Interface()
-				}
-				if name, ok := field.TagSettingsGet("NAME"); ok {
-					tagNames := strings.Split(name, "-")
-					var prefix string
-					if len(tagNames) > 0 {
-						prefix = tagNames[0] + "-"
-					} else {
-						continue
-					}
-					nData := getPrefix(data, prefix)
-					decoder, ok := fieldInterface.(Decoder)
-					if ok {
-						err := decoder.UnmarshalDocument(name, nData, metaInfo, opt...)
-						if err != nil {
-							return err
-						}
-					} else {
-						if err := Unmarshal(fieldInterface, nData, metaInfo, opt...); err != nil {
-							return err
-						}
-					}
+				if err := encodeStructOrPtr(row, kind, field, opt...); err != nil {
+					return err
 				}
 			case reflect.Slice:
-				if name, ok := field.TagSettingsGet("NAME"); ok {
-					tagNames := strings.Split(name, "-")
-					var prefix string
-					if len(tagNames) > 0 {
-						prefix = tagNames[0] + "-"
-					}
-					nData := getPrefix(data, prefix)
-					isStruct := field.Field.Type().Elem().Kind() == reflect.Struct
-					var groupDataMaps []map[string]interface{}
-					if group, ok := field.TagSettingsGet("GROUP"); ok {
-						groupDataMaps = getGroupData(nData, group)
-					} else {
-						for key, val := range nData {
-							itemMap := map[string]interface{}{
-								key: val,
-							}
-							groupDataMaps = append(groupDataMaps, itemMap)
-						}
-					}
-					for _, itemMap := range groupDataMaps {
-						var elem reflect.Value
-						if isStruct {
-							elem = reflect.New(field.Field.Type().Elem())
-						} else {
-							elem = reflect.New(field.Field.Type().Elem()).Elem()
-							elem.Set(reflect.New(elem.Type().Elem()))
-						}
-						itemInterface := elem.Interface()
-						decoder, ok := itemInterface.(Decoder)
-						if ok {
-							err := decoder.UnmarshalDocument(name, itemMap, metaInfo, opt...)
-							if err != nil {
-								return err
-							}
-						} else {
-							if err := Unmarshal(itemInterface, itemMap, metaInfo, opt...); err != nil {
-								return err
-							}
-						}
-						if isStruct {
-							field.Field.Set(reflect.Append(field.Field, elem.Elem()))
-						} else {
-							field.Field.Set(reflect.Append(field.Field, elem))
-						}
-					}
+				if err := encodeSlice(row, field, opt...); err != nil {
+					return err
 				}
 			default:
 				iFace := field.Field.Addr().Interface()
-				if decoder, ok := iFace.(Decoder); ok {
-					if err := decoder.UnmarshalDocument("", data, metaInfo, opt...); err != nil {
+				if encoder, ok := iFace.(Encoder); ok {
+					if err := encoder.EncodeDocument(row, opt...); err != nil {
 						return err
 					}
 					continue
 				}
-				if isReg, ok := field.TagSettingsGet("REG"); ok {
-					if isReg == "true" {
-						name, ok1 := field.TagSettingsGet("NAME")
-						if ok1 {
-							reg := regexp.MustCompile(name)
-							if reg == nil {
-								return errors.New("regexp failed")
-							}
-							for key, val := range data {
-								if reg.MatchString(key) {
-									if _, ok := field.TagSettingsGet("FLOAT"); ok {
-										if shift, ok := field.TagSettingsGet("SHIFT"); ok {
-											if valStr, ok := val.(string); ok {
-												floatDeci, err := decimal.NewFromString(valStr)
-												if err != nil {
-													return err
-												}
-												shiftVal, err := strconv.Atoi(shift)
-												if err != nil {
-													return err
-												}
-												shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
-												if err := field.Set(shiftedVal); err != nil {
-													return err
-												}
-												continue
-											}
-											if floatVal, ok := val.(float64); ok {
-												floatDeci := decimal.NewFromFloat(floatVal)
-												shiftVal, err := strconv.Atoi(shift)
-												if err != nil {
-													return err
-												}
-												shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
-												err = field.Set(shiftedVal)
-												return err
-											}
-											return errors.New("Value cannot convert")
-										}
-									} else {
-										val = ConvertToType(field.Field, val)
-										if err := field.Set(val); err != nil {
-											return err
-										}
-									}
-								}
-							}
-						}
+				if isReg, ok := field.TagSettingsGet(regTag); ok {
+					if err := encodeWithReg(row, isReg, field); err != nil {
+						return err
 					}
 				} else {
 					if name, ok := field.TagSettingsGet("NAME"); ok {
-						val, ok := data[name]
-						if ok {
-							if _, ok := field.TagSettingsGet("FLOAT"); ok {
-								if shift, ok := field.TagSettingsGet("SHIFT"); ok {
-									if valStr, ok := val.(string); ok {
-										floatDeci, err := decimal.NewFromString(valStr)
-										if err != nil {
-											return err
-										}
-										shiftVal, err := strconv.Atoi(shift)
-										if err != nil {
-											return err
-										}
-										shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
-										if err := field.Set(shiftedVal); err != nil {
-											return err
-										}
-										continue
-									}
-									if floatVal, ok := val.(float64); ok {
-										floatDeci := decimal.NewFromFloat(floatVal)
-										shiftVal, err := strconv.Atoi(shift)
-										if err != nil {
-											return err
-										}
-										shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
-										err = field.Set(shiftedVal)
-										return err
-									}
-									return errors.New("Value cannot convert")
-								}
-							}
-							val = ConvertToType(field.Field, val)
-							if err := field.Set(val); err != nil {
-								return err
-							}
-							if shift, ok := field.TagSettingsGet("SHIFT"); ok {
-								if field.Field.Kind() == reflect.Int64 {
-									shiftVal, err := strconv.Atoi(shift)
-									if err != nil {
-										return err
-									}
-									shiftedVal := decimal.New(field.Field.Int(), int32(shiftVal)).Ceil().IntPart()
-									err = field.Set(shiftedVal)
-									if err != nil {
-										return err
-									}
-								}
-							}
+						if err := encodeBase(row, name, field); err != nil {
+							return err
 						}
 					}
 				}
 			}
+		}
+	}
+	return nil
+}
 
+func encodeStructOrPtr(row *Row, kind reflect.Kind, field *Field, opt ...interface{}) error {
+	isPtr := kind == reflect.Ptr
+	if isPtr && field.Field.IsNil() {
+		field.Field.Set(reflect.New(field.Struct.Type.Elem()))
+	}
+	fieldInterface := field.Field.Interface()
+	if !isPtr {
+		fieldInterface = field.Field.Addr().Interface()
+	}
+	if name, ok := field.TagSettingsGet("NAME"); ok {
+		tagNames := strings.Split(name, "-")
+		var prefix string
+		if len(tagNames) > 0 {
+			prefix = tagNames[0] + "-"
+		} else {
+			return nil
+		}
+		nData := getPrefix(row.Data, prefix)
+		subRow := &Row{
+			TagName:  name,
+			Data:     nData,
+			MetaInfo: row.MetaInfo,
+		}
+		encoder, ok := fieldInterface.(Encoder)
+		if ok {
+			err := encoder.EncodeDocument(subRow, opt...)
+			if err != nil {
+				return err
+			}
+		} else {
+			if err := Encode(fieldInterface, subRow, opt...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func encodeSlice(row *Row, field *Field, opt ...interface{}) error {
+	name, ok := field.TagSettingsGet("NAME")
+	if !ok {
+		return nil
+	}
+	tagNames := strings.Split(name, "-")
+	var prefix string
+	if len(tagNames) > 0 {
+		prefix = tagNames[0] + "-"
+	}
+	nData := getPrefix(row.Data, prefix)
+	isStruct := field.Field.Type().Elem().Kind() == reflect.Struct
+	var groupDataMaps []map[string]interface{}
+	if group, ok := field.TagSettingsGet("GROUP"); ok {
+		groupDataMaps = getGroupData(nData, group)
+	} else {
+		for key, val := range nData {
+			itemMap := map[string]interface{}{
+				key: val,
+			}
+			groupDataMaps = append(groupDataMaps, itemMap)
+		}
+	}
+	for _, itemMap := range groupDataMaps {
+		var elem reflect.Value
+		if isStruct {
+			elem = reflect.New(field.Field.Type().Elem())
+		} else {
+			elem = reflect.New(field.Field.Type().Elem()).Elem()
+			elem.Set(reflect.New(elem.Type().Elem()))
+		}
+		itemInterface := elem.Interface()
+		encoder, ok := itemInterface.(Encoder)
+		subRow := &Row{
+			TagName:  name,
+			Data:     itemMap,
+			MetaInfo: row.MetaInfo,
+		}
+		if ok {
+			err := encoder.EncodeDocument(row, opt...)
+			if err != nil {
+				return err
+			}
+		} else {
+			if err := Encode(itemInterface, subRow, opt...); err != nil {
+				return err
+			}
+		}
+		if isStruct {
+			field.Field.Set(reflect.Append(field.Field, elem.Elem()))
+		} else {
+			field.Field.Set(reflect.Append(field.Field, elem))
+		}
+	}
+	return nil
+}
+
+func encodeWithReg(row *Row, isReg string, field *Field) error {
+	if isReg != "true" {
+		return nil
+	}
+	name, ok := field.TagSettingsGet("NAME")
+	if !ok {
+		return nil
+	}
+	reg, err := regexp.Compile(name)
+	if err != nil {
+		return errors.New("regexp failed")
+	}
+	for key, val := range row.Data {
+		if reg.MatchString(key) {
+			if _, ok := field.TagSettingsGet("FLOAT"); ok {
+				if shift, ok := field.TagSettingsGet("SHIFT"); ok {
+					if valStr, ok := val.(string); ok {
+						floatDeci, err := decimal.NewFromString(valStr)
+						if err != nil {
+							return err
+						}
+						shiftVal, err := strconv.Atoi(shift)
+						if err != nil {
+							return err
+						}
+						shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
+						if err := field.Set(shiftedVal); err != nil {
+							return err
+						}
+						continue
+					}
+					if floatVal, ok := val.(float64); ok {
+						floatDeci := decimal.NewFromFloat(floatVal)
+						shiftVal, err := strconv.Atoi(shift)
+						if err != nil {
+							return err
+						}
+						shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
+						err = field.Set(shiftedVal)
+						return err
+					}
+					return errors.New("value cannot convert")
+				}
+			} else {
+				val = ConvertToType(field.Field, val)
+				if err := field.Set(val); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func encodeBase(row *Row, name string, field *Field) error {
+	val, ok := row.Data[name]
+	if ok {
+		if _, ok := field.TagSettingsGet("FLOAT"); ok {
+			if shift, ok := field.TagSettingsGet("SHIFT"); ok {
+				if valStr, ok := val.(string); ok {
+					floatDeci, err := decimal.NewFromString(valStr)
+					if err != nil {
+						return err
+					}
+					shiftVal, err := strconv.Atoi(shift)
+					if err != nil {
+						return err
+					}
+					shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
+					if err := field.Set(shiftedVal); err != nil {
+						return err
+					}
+					return nil
+				}
+				if floatVal, ok := val.(float64); ok {
+					floatDeci := decimal.NewFromFloat(floatVal)
+					shiftVal, err := strconv.Atoi(shift)
+					if err != nil {
+						return err
+					}
+					shiftedVal := floatDeci.Shift(int32(shiftVal)).Ceil().IntPart()
+					err = field.Set(shiftedVal)
+					return err
+				}
+				return errors.New("value cannot convert")
+			}
+		}
+		val = ConvertToType(field.Field, val)
+		if err := field.Set(val); err != nil {
+			return err
+		}
+		if shift, ok := field.TagSettingsGet("SHIFT"); ok {
+			if field.Field.Kind() == reflect.Int64 {
+				shiftVal, err := strconv.Atoi(shift)
+				if err != nil {
+					return err
+				}
+				shiftedVal := decimal.New(field.Field.Int(), int32(shiftVal)).Ceil().IntPart()
+				err = field.Set(shiftedVal)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

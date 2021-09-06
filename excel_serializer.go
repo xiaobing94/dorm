@@ -2,8 +2,9 @@ package dorm
 
 import (
 	"fmt"
-	"github.com/360EntSecGroup-Skylar/excelize"
 	"io"
+
+	"github.com/360EntSecGroup-Skylar/excelize"
 )
 
 type ExcelSerializer struct {

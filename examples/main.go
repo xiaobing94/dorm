@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/xiaobing94/dorm"
 	"strings"
+
+	"github.com/xiaobing94/dorm"
 )
 
 type AddProductsReq struct {
@@ -23,11 +24,11 @@ type ProductI18n struct {
 	Introduction string `gorm:"comment:'产品描述';size:1000;default:''" json:"introduction" dorm:"name:产品介绍[\\S]+;reg:true"`
 }
 
-func (p *ProductI18n) UnmarshalDocument(tagName string, data map[string]interface{}, metaInfo interface{}, opt ...interface{}) error {
+func (p *ProductI18n) EncodeDocument(row *dorm.Row, opt ...interface{}) error {
 	languages := []string{"en", "zh-CN", "ru-RU"}
 	for _, language := range languages {
 		isBreak := false
-		for k, _ := range data {
+		for k, _ := range row.Data {
 			if strings.Contains(k, language) {
 				p.Language = language
 				isBreak = true
@@ -38,7 +39,7 @@ func (p *ProductI18n) UnmarshalDocument(tagName string, data map[string]interfac
 			break
 		}
 	}
-	err := dorm.Unmarshal(p, data, metaInfo)
+	err := dorm.Encode(p, row)
 	return err
 }
 
@@ -51,7 +52,7 @@ func main() {
 	}
 
 	var p []*AddProductsReq
-	err = mapper.GetObjectsFromParser(&p)
+	err = mapper.Encode(&p)
 	if err != nil {
 		println(err.Error())
 		return

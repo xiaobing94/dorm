@@ -5,6 +5,7 @@ import (
 	"strconv"
 )
 
+// ConvertToType 将reflect.Value的值 暂支持目前这几种
 func ConvertToType(value reflect.Value, v interface{}) interface{} {
 	kind := value.Kind()
 	s, ok := v.(string)

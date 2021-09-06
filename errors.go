@@ -10,17 +10,24 @@ var (
 )
 
 type RowError struct {
-	MetaInfo interface{}
-	Errors    string
+	MetaInfo  interface{}
+	ErrorInfo string
 }
 
 func NewRowError(metaInfo interface{}, text string) error {
 	return &RowError{
-		MetaInfo: metaInfo,
-		Errors:   text,
+		MetaInfo:  metaInfo,
+		ErrorInfo: text,
+	}
+}
+
+func WrapError(metaInfo interface{}, err error) error {
+	return &RowError{
+		MetaInfo:  metaInfo,
+		ErrorInfo: err.Error(),
 	}
 }
 
 func (e *RowError) Error() string {
-	return fmt.Sprintf("%v, error:%s", e.MetaInfo, e.Errors)
+	return fmt.Sprintf("%v, error:%s", e.MetaInfo, e.ErrorInfo)
 }

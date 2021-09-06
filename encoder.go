@@ -6,15 +6,18 @@ import (
 	"sort"
 )
 
-type Encoder interface {
-	MarshalDocument() (map[string]interface{}, []string, error)
+// Decoder 解码器
+type Decoder interface {
+	DecodeDocument() (map[string]interface{}, []string, error)
 }
 
+// WeightKey 带权重的key
 type WeightKey struct {
 	Key    string
 	weight string
 }
 
+// WeightKeys 带权重key列表
 type WeightKeys []WeightKey
 
 func (k WeightKeys) Len() int {
@@ -36,6 +39,7 @@ func (k WeightKeys) Swap(i, j int) {
 	k[i].Key, k[j].Key = k[j].Key, k[i].Key
 }
 
+// GetKeys 获取所有的key
 func (k WeightKeys) GetKeys() []string {
 	var keys []string
 	for _, weightKey := range k {
@@ -44,8 +48,8 @@ func (k WeightKeys) GetKeys() []string {
 	return keys
 }
 
-// Marshal dorm tag 解析
-func Marshal(v interface{}) (map[string]interface{}, []string, error) {
+// DecodeDocument 解码对象到map
+func DecodeDocument(v interface{}) (map[string]interface{}, []string, error) {
 	var keySort []string
 	var weightKeys WeightKeys
 	typ := reflect.TypeOf(v)
@@ -70,32 +74,10 @@ func Marshal(v interface{}) (map[string]interface{}, []string, error) {
 			}
 			switch kind {
 			case reflect.Ptr, reflect.Struct:
-				isPtr := kind == reflect.Ptr
-				if isPtr && field.Field.IsNil() {
-					continue
-				}
-				fieldInterface := field.Field.Interface()
-				if !isPtr {
-					fieldInterface = field.Field.Addr().Interface()
-				}
-				var subResult map[string]interface{}
 				var err error
-				encoder, ok := fieldInterface.(Encoder)
-				if ok {
-					subResult, _, err = encoder.MarshalDocument()
-					if err != nil {
-						return nil, nil, err
-					}
-				} else {
-					subResult, _, err = Marshal(fieldInterface)
-					if err != nil {
-						return nil, nil, err
-					}
-				}
-				if name, ok := field.TagSettingsGet("NAME"); ok {
-					for key, val := range subResult {
-						result[name+key] = val
-					}
+				result, err = decodeDecodeDocumentStruct(kind, field, result)
+				if err != nil {
+					return nil, nil, err
 				}
 			default:
 				if name, ok := field.TagSettingsGet("NAME"); ok {
@@ -114,4 +96,36 @@ func Marshal(v interface{}) (map[string]interface{}, []string, error) {
 		keySort = weightKeys.GetKeys()
 	}
 	return result, keySort, nil
+}
+
+func decodeDecodeDocumentStruct(kind reflect.Kind, field *Field,
+	result map[string]interface{}) (map[string]interface{}, error){
+	isPtr := kind == reflect.Ptr
+	if isPtr && field.Field.IsNil() {
+		return result, nil
+	}
+	fieldInterface := field.Field.Interface()
+	if !isPtr {
+		fieldInterface = field.Field.Addr().Interface()
+	}
+	var subResult map[string]interface{}
+	var err error
+	decoder, ok := fieldInterface.(Decoder)
+	if ok {
+		subResult, _, err = decoder.DecodeDocument()
+		if err != nil {
+			return result, err
+		}
+	} else {
+		subResult, _, err = DecodeDocument(fieldInterface)
+		if err != nil {
+			return result, err
+		}
+	}
+	if name, ok := field.TagSettingsGet("NAME"); ok {
+		for key, val := range subResult {
+			result[name+key] = val
+		}
+	}
+	return result, nil
 }

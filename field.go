@@ -8,6 +8,7 @@ import (
 	"sync"
 )
 
+
 type StructField struct {
 	Name            string
 	Tag             reflect.StructTag

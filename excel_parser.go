@@ -2,35 +2,42 @@ package dorm
 
 import (
 	"errors"
-	"github.com/360EntSecGroup-Skylar/excelize"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/360EntSecGroup-Skylar/excelize"
 )
 
+// ExcelParser excel解析器 实现了Parser接口
 type ExcelParser struct {
 	sheetName string
 	file      *excelize.File
 }
 
+// MetaInfo excel的元信息
 type MetaInfo struct {
 	SheetName string
 	RowIndex  string
 }
 
-type CellResult struct {
-	result   map[string]interface{}
+// ExcelRow excel行信息
+type ExcelRow struct {
+	data     map[string]interface{}
 	metaInfo MetaInfo
 }
 
-func (m *CellResult) GetResults() map[string]interface{} {
-	return m.result
+// GetData 获取到当前行的数据
+func (m *ExcelRow) GetData() map[string]interface{} {
+	return m.data
 }
 
-func (m *CellResult) GetMetaInfo() interface{} {
+// GetMetaInfo 获取当前元信息
+func (m *ExcelRow) GetMetaInfo() interface{} {
 	return m.metaInfo
 }
 
+// NewExcelParser 通过文件reader实例化一个ExcelParser
 func NewExcelParser(r io.Reader) (*ExcelParser, error) {
 	xlsFile, err := excelize.OpenReader(r)
 	if err != nil {
@@ -40,51 +47,53 @@ func NewExcelParser(r io.Reader) (*ExcelParser, error) {
 	return parser, nil
 }
 
+// SetSheetName 设置当前sheetName
 func (p *ExcelParser) SetSheetName(sheetName string) {
 	p.sheetName = sheetName
 }
 
-func (p *ExcelParser) rowsToResults(sheetName string, rows [][]string, results []ResultInterface) []ResultInterface {
+func (p *ExcelParser) rowsToResults(sheetName string, columns [][]string, rows []RowInterface) []RowInterface {
 	titleIndex := map[int]string{}
-	for index, row := range rows {
+	for index, column := range columns {
 		if index == 0 {
-			for rowIndex, colCell := range row {
+			for rowIndex, colCell := range column {
 				titleIndex[rowIndex] = strings.TrimSpace(colCell)
 			}
 		} else {
-			cell := map[string]interface{}{}
-			for rowIndex, colCell := range row {
+			rowData := map[string]interface{}{}
+			for rowIndex, colCell := range column {
 				titleName := titleIndex[rowIndex]
-				cell[titleName] = colCell
+				rowData[titleName] = colCell
 			}
-			cellResult := &CellResult{
-				result: cell,
+			cellResult := &ExcelRow{
+				data: rowData,
 				metaInfo: MetaInfo{
 					SheetName: sheetName,
 					RowIndex:  strconv.Itoa(index),
 				},
 			}
-			results = append(results, cellResult)
+			rows = append(rows, cellResult)
 		}
 	}
-	return results
+	return rows
 }
 
-func (p *ExcelParser) ReadToMaps(opt ...interface{}) ([]ResultInterface, error) {
-	var results []ResultInterface
+// ReadToRows 读取并解析道行数据列表
+func (p *ExcelParser) ReadToRows(opt ...interface{}) ([]RowInterface, error) {
+	var rows []RowInterface
 	if p.file.SheetCount <= 0 {
 		return nil, errors.New("SheetCount is zero")
 	}
-	var rows [][]string
+	var columns [][]string
 	if p.sheetName != "" {
-		rows = p.file.GetRows(p.sheetName)
-		results = p.rowsToResults(p.sheetName, rows, results)
+		columns = p.file.GetRows(p.sheetName)
+		rows = p.rowsToResults(p.sheetName, columns, rows)
 	} else {
-		for i := 1; i < p.file.SheetCount+1; i++ {
+		for i := 1; i <= p.file.SheetCount; i++ {
 			sheetName := p.file.GetSheetName(i)
 			sheetRows := p.file.GetRows(sheetName)
-			results = p.rowsToResults(sheetName, sheetRows, results)
+			rows = p.rowsToResults(sheetName, sheetRows, rows)
 		}
 	}
-	return results, nil
+	return rows, nil
 }
